@@ -78,6 +78,16 @@ def generate(
     consistency: ConsistencyReport = check(meta)
     report["consistency"] = _dataclass_to_dict(consistency)
 
+    # Asegurar que sha256/md5 están siempre en metadata.hashes
+    # independientemente de si vienen del parser Python o del Rust bridge
+    if "metadata" in report:
+        meta_dict = report["metadata"]
+        if not meta_dict.get("hashes") or not meta_dict["hashes"].get("sha256"):
+            report["metadata"]["hashes"] = {
+                "sha256": meta_dict.get("sha256") or "",
+                "md5": meta_dict.get("md5") or "",
+            }
+
     return report
 
 
