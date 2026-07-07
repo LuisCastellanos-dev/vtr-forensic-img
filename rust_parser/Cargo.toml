@@ -1,0 +1,20 @@
+[package]
+name = "vtr_image_parser"
+version = "0.1.0"
+edition = "2021"
+
+# DECISIÓN: dependencias mínimas deliberada.
+# El parser de binarios no debe tener más superficie de ataque
+# de la que resuelve. Cada crate adicional es código que no
+# controlamos corriendo sobre datos no confiables.
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+md-5 = "0.10"
+crc32fast = "1"
+
+[[bin]]
+name = "vtr_image_parser"
+path = "src/main.rs"

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Rust
+rust_parser/target/
+
+# Imágenes de prueba — no subir al repo
+# (pueden contener metadata real o ser evidencia sensible)
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+*.tiff
+*.raw
+
+# Reportes generados
+*.txt
+*.json
+
+# Variables de entorno
+.env
+.envrc
+
+# Archivos temporales de descarga
+*-downloads/
