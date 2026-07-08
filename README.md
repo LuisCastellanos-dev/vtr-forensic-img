@@ -6,26 +6,6 @@
 > **Vector Telemetry Research** — cada byte declarado se verifica,
 > ningún null se rellena silenciosamente.
 
-## Estado actual — v0.1.0
-
-Operativo. Probado contra imágenes JPEG reales con GPS, imágenes
-simuladas de IA, y casos de timestamps inconsistentes. El parser
-binario en Rust compila y corre en Linux (Ubuntu 24, Rust 1.75+).
-
-```
-Componente               Líneas    Estado
-─────────────────────────────────────────
-core/metadata_extractor  550       ✅ Operativo
-core/ela_analyzer        285       ✅ Operativo
-core/consistency_checker 402       ✅ Operativo
-core/provenance_report   226       ✅ Operativo
-core/rust_bridge         244       ✅ Operativo
-cli.py                   103       ✅ Operativo
-rust_parser/src/main.rs  541       ✅ Compilado
-─────────────────────────────────────────
-Total                    2352
-```
-
 ## Qué hace
 
 Analiza una imagen (local o URL) y produce un reporte forense que
@@ -173,14 +153,74 @@ explícitamente, incluyendo el umbral y la calidad de recompresión
 usados, para que cualquier auditor pueda reproducir el análisis con
 los mismos parámetros o cuestionarlos.
 
+## Estado actual (v0.1.0 — operativo)
+
+| Componente | Estado |
+|---|---|
+| Parser binario Rust (JPEG/PNG) | ✅ Operativo |
+| Extracción de metadata EXIF/XMP/GPS | ✅ Operativo |
+| Error Level Analysis (ELA) | ✅ Operativo |
+| Detección de señales de IA generativa | ✅ Operativo |
+| Consistency checker forense | ✅ Operativo |
+| Interfaz web FastAPI | ✅ Operativo |
+| Suite adversarial pytest (55 tests) | ✅ Operativo |
+| Parser WEBP/GIF/TIFF/RAW en Rust | 🔲 Detecta formato, no parsea internamente |
+
+## Roadmap v0.2.0
+
+Dos adiciones aprobadas tras evaluación de feedback externo. Cada
+propuesta fue evaluada contra la premisa de integridad forense —
+solo se incorpora lo que agrega valor trazable, no lo que suena
+técnicamente interesante pero introduce opacidad en el reporte.
+
+**1. Modo Estricto vs. Modo Forense (`--strict`)**
+
+El parser actual opera en modo forense implícito: cuando encuentra
+una anomalía, intenta continuar y recuperar el resto de la estructura,
+registrando el offset del error. Un flag `--strict` permitirá que el
+analista decida que el análisis se detenga al primer error estructural
+— útil cuando la integridad del archivo es la pregunta principal y
+cualquier continuación pasaría información a través de datos potencialmente
+corruptos.
+
+```bash
+# Modo forense (actual, default): continúa tras errores, los registra
+python3 cli.py analyze imagen.jpg
+
+# Modo estricto (v0.2.0): se detiene al primer error estructural
+python3 cli.py analyze imagen.jpg --strict
+```
+
+**2. Análisis de Entropía por Bloques (`core/entropy_analyzer.py`)**
+
+Complementa ELA con una técnica distinta: calcular la entropía de
+Shannon por bloques de la imagen. Regiones manipuladas suelen mostrar
+entropía anómala respecto al fondo — ya sea demasiado baja (área
+clonada/copiada con poca variación) o demasiado alta (datos cifrados
+o comprimidos insertados). La distinción con ELA es importante: ELA
+detecta diferencias en nivel de compresión JPEG; el análisis de entropía
+detecta aleatoriedad de bits — son señales distintas y complementarias.
+
+**Descartado explícitamente de este roadmap:**
+
+- **YARA pattern matching:** las reglas YARA son mantenidas por
+  terceros y no son verificables directamente por el analista. Citar
+  "YARA lo detectó" en un reporte forense sin poder mostrar exactamente
+  qué bytes activaron qué regla introduce opacidad que contradice la
+  premisa del proyecto.
+- **Comparación de "vector de markers" contra base de datos de
+  dispositivos:** requiere una base de referencia por modelo de cámara
+  que no existe públicamente con la cobertura necesaria. Sin referente,
+  la comparación no tiene sustento verificable.
+- **APIs externas de detección de IA:** decisión permanente, no
+  limitación técnica. Rompe la cadena de custodia forense.
+
 ## Lo que este proyecto NO hace (v0.1.0)
 
-- No analiza WEBP, GIF, TIFF, o RAW (parser Rust los detecta por
-  firma pero no los parsea internamente)
-- No tiene interfaz web (planificado para v0.2.0)
-- No tiene tests formales de pytest (planificado para v0.2.0)
+- No analiza WEBP, GIF, TIFF, o RAW internamente (el parser Rust
+  detecta el formato por firma pero no recorre su estructura)
 - No usa APIs externas de detección de IA — decisión deliberada,
-  no limitación técnica
+  documentada en ARCHITECTURE.md
 
 ---
 
