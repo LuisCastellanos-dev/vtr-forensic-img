@@ -168,52 +168,92 @@ los mismos parámetros o cuestionarlos.
 
 ## Roadmap v0.2.0
 
-Dos adiciones aprobadas tras evaluación de feedback externo. Cada
-propuesta fue evaluada contra la premisa de integridad forense —
-solo se incorpora lo que agrega valor trazable, no lo que suena
-técnicamente interesante pero introduce opacidad en el reporte.
+Cuatro adiciones aprobadas. Cada propuesta fue evaluada contra la
+premisa de integridad forense — solo se incorpora lo que agrega valor
+trazable, sin inferencias ni dependencias cruzadas entre proyectos VTR.
 
 **1. Modo Estricto vs. Modo Forense (`--strict`)**
 
 El parser actual opera en modo forense implícito: cuando encuentra
-una anomalía, intenta continuar y recuperar el resto de la estructura,
-registrando el offset del error. Un flag `--strict` permitirá que el
-analista decida que el análisis se detenga al primer error estructural
-— útil cuando la integridad del archivo es la pregunta principal y
-cualquier continuación pasaría información a través de datos potencialmente
+una anomalia, intenta continuar y recuperar el resto de la estructura,
+registrando el offset del error. Un flag `--strict` permitira que el
+analista decida que el analisis se detenga al primer error estructural
+— util cuando la integridad del archivo es la pregunta principal y
+cualquier continuacion pasaria informacion a traves de datos potencialmente
 corruptos.
 
 ```bash
-# Modo forense (actual, default): continúa tras errores, los registra
+# Modo forense (actual, default): continua tras errores, los registra
 python3 cli.py analyze imagen.jpg
 
 # Modo estricto (v0.2.0): se detiene al primer error estructural
 python3 cli.py analyze imagen.jpg --strict
 ```
 
-**2. Análisis de Entropía por Bloques (`core/entropy_analyzer.py`)**
+**2. Analisis de Entropia por Bloques (`core/entropy_analyzer.py`)**
 
-Complementa ELA con una técnica distinta: calcular la entropía de
+Complementa ELA con una tecnica distinta: calcular la entropia de
 Shannon por bloques de la imagen. Regiones manipuladas suelen mostrar
-entropía anómala respecto al fondo — ya sea demasiado baja (área
-clonada/copiada con poca variación) o demasiado alta (datos cifrados
-o comprimidos insertados). La distinción con ELA es importante: ELA
-detecta diferencias en nivel de compresión JPEG; el análisis de entropía
-detecta aleatoriedad de bits — son señales distintas y complementarias.
+entropia anomala respecto al fondo — ya sea demasiado baja (area
+clonada/copiada con poca variacion) o demasiado alta (datos cifrados
+o comprimidos insertados). La distincion con ELA es importante: ELA
+detecta diferencias en nivel de compresion JPEG; el analisis de entropia
+detecta aleatoriedad de bits — son senales distintas y complementarias.
 
-**Descartado explícitamente de este roadmap:**
+**3. Verificacion de firma Ed25519 (`core/signature_verifier.py`)**
 
+Permite verificar que una imagen fue firmada criptograficamente por
+el dispositivo que afirma haberla capturado, convirtiendo la cadena de
+custodia de "confiamos en que nadie la modifico" a "matematicamente
+demostrable que no fue modificada desde la captura".
+
+Decision arquitectonica — sin inferencias: este modulo implementa la
+verificacion de firmas Ed25519 usando PyNaCl (misma biblioteca ya
+evaluada contra CVE-2025-69277, misma restriccion de version >= 1.6.2)
+sin importar ningun codigo de vtr-continuity. El dispositivo que captura
+la imagen firma con su llave privada; vtr-forensic-img verifica contra
+la llave publica registrada. La gestion de llaves (PKI de dos niveles,
+device_registry.vtrdb) es responsabilidad de vtr-continuity; la
+verificacion de firmas es responsabilidad de este proyecto. Sin
+dependencias cruzadas.
+
+```bash
+# Verificar que imagen.jpg fue firmada por el dispositivo registrado
+python3 cli.py analyze imagen.jpg --verify-signature firma.sig --public-key device_pub.key
+```
+
+**4. Comparacion diferencial entre dos imagenes (`core/diff_analyzer.py`)**
+
+Compara dos imagenes provistas por el analista — por ejemplo, una
+version declarada como "original" y una version sospechosa — e
+identifica exactamente donde difieren a nivel de bytes, markers, y
+metadata, no solo a nivel de pixeles.
+
+Decision arquitectonica — sin inferencias: este modulo nunca asume la
+existencia de una "imagen dorada" o "verdad de fabrica" externa. El
+analista provee ambas imagenes explicitamente. Si no existe una version
+original verificable, la comparacion no se puede hacer — y el sistema
+lo dice claramente en vez de inventar un referente.
+
+```bash
+# Comparar imagen sospechosa contra version que el analista declara original
+python3 cli.py diff imagen_sospechosa.jpg imagen_original.jpg
+```
+
+**Descartado explicitamente de este roadmap:**
+
+- **Importar ed25519_sign.py de vtr-continuity:** viola la regla de
+  no mezcla entre repos VTR. La verificacion de firmas se implementa
+  de forma independiente con la misma biblioteca.
+- **Comparacion contra "imagen dorada" sin proveerla:** asumir que
+  existe una verdad de fabrica sin que el analista la provea
+  explicitamente introduciria una afirmacion no verificable.
 - **YARA pattern matching:** las reglas YARA son mantenidas por
-  terceros y no son verificables directamente por el analista. Citar
-  "YARA lo detectó" en un reporte forense sin poder mostrar exactamente
-  qué bytes activaron qué regla introduce opacidad que contradice la
-  premisa del proyecto.
-- **Comparación de "vector de markers" contra base de datos de
-  dispositivos:** requiere una base de referencia por modelo de cámara
-  que no existe públicamente con la cobertura necesaria. Sin referente,
-  la comparación no tiene sustento verificable.
-- **APIs externas de detección de IA:** decisión permanente, no
-  limitación técnica. Rompe la cadena de custodia forense.
+  terceros y no son verificables directamente. Citar "YARA lo detecto"
+  en un reporte forense sin mostrar exactamente que bytes activaron que
+  regla introduce opacidad que contradice la premisa del proyecto.
+- **APIs externas de deteccion de IA:** decision permanente, no
+  limitacion tecnica. Rompe la cadena de custodia forense.
 
 ## Lo que este proyecto NO hace (v0.1.0)
 
