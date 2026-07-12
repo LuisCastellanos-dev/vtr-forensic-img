@@ -125,12 +125,20 @@ def _run_analysis_isolated(image_path: Path, url: str | None = None) -> dict:
     en PATH es el mismo. El subproceso importa el pipeline desde cero —
     sin estado compartido con el proceso servidor.
 
+    PORTABILIDAD (Linux / macOS / Windows):
+      cmd se pasa como lista, nunca como string — subprocess.run con
+      lista maneja correctamente rutas con espacios en cualquier SO,
+      incluyendo "C:\\Program Files\\Python312\\python.exe" en Windows,
+      sin necesidad de shlex.quote ni shell=True (que abre vectores
+      de injection de comandos).
+
     Si el subproceso es corrompido por una imagen maliciosa (crash,
     hang, corrupción de heap), el servidor principal no se ve afectado.
     El timeout de 120s previene que una imagen diseñada para colgar el
     análisis bloquee el servidor indefinidamente.
     """
     analysis_script = str(PROJECT_DIR / "web" / "_analysis_worker.py")
+    # Lista explícita — nunca string con shell=True
     cmd = [sys.executable, analysis_script, str(image_path)]
     if url:
         cmd += ["--url", url]
@@ -143,6 +151,10 @@ def _run_analysis_isolated(image_path: Path, url: str | None = None) -> dict:
             capture_output=True,
             text=True,
             timeout=120,
+            # shell=False es el default y debe mantenerse — shell=True
+            # en Windows evaluaría el comando a través de cmd.exe,
+            # abriendo vectores de injection.
+            shell=False,
             env={**os.environ, "VTR_RUST_PARSER_BIN": rust_bin},
         )
         if result.returncode not in (0, 1, 2):
@@ -215,13 +227,21 @@ async def analyze(
                     detail=f"Imagen supera el límite de {MAX_IMAGE_BYTES // 1_048_576} MB"
                 )
 
-            # Archivo temporal — eliminado en el finally, sin excepciones
+            # Archivo temporal portable (Linux / macOS / Windows).
+            # En Windows, NamedTemporaryFile con delete=False mantiene
+            # el archivo abierto por el proceso actual, y un segundo proceso
+            # (el worker) no puede abrirlo simultáneamente dependiendo de
+            # la configuración del sistema. Solución: escribir, cerrar
+            # explícitamente, luego pasar la ruta al worker.
             suffix = Path(file.filename or "img").suffix or ".tmp"
-            with tempfile.NamedTemporaryFile(
-                suffix=suffix, delete=False, dir=tempfile.gettempdir()
-            ) as tmp:
-                tmp.write(image_bytes)
-                tmp_path = Path(tmp.name)
+            fd, tmp_name = tempfile.mkstemp(
+                suffix=suffix, dir=tempfile.gettempdir()
+            )
+            try:
+                os.write(fd, image_bytes)
+            finally:
+                os.close(fd)  # cerrar antes de que el worker lo abra
+            tmp_path = Path(tmp_name)
 
             report = _run_analysis_isolated(tmp_path)
 
@@ -232,11 +252,10 @@ async def analyze(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="URL debe comenzar con http:// o https://"
                 )
-            # Archivo temporal vacío como placeholder para el worker
-            with tempfile.NamedTemporaryFile(
-                suffix=".url", delete=False, dir=tempfile.gettempdir()
-            ) as tmp:
-                tmp_path = Path(tmp.name)
+            # Placeholder temporal — mismo patrón portable
+            fd, tmp_name = tempfile.mkstemp(suffix=".url")
+            os.close(fd)
+            tmp_path = Path(tmp_name)
 
             report = _run_analysis_isolated(tmp_path, url=url)
 

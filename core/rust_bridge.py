@@ -16,6 +16,21 @@ FALLBACK:
   continúa usando sus propios parsers. Esto se registra explícitamente
   — nunca silenciosamente. La premisa VTR aplica al bridge mismo:
   "ausente y registrado" es distinto de "ausente silenciosamente".
+
+COMPATIBILIDAD DE SO (Linux / macOS / Windows):
+  El binario Rust compilado tiene nombre distinto según el SO:
+  - Linux / macOS: vtr_image_parser
+  - Windows:       vtr_image_parser.exe
+  La función _binary_name() resuelve esto en tiempo de ejecución.
+
+  os.access(path, os.X_OK) no tiene significado en Windows (siempre
+  retorna True para archivos existentes). En Windows, la verificación
+  de ejecutabilidad se hace por extensión (.exe) y existencia del
+  archivo — is_file() es suficiente en ese SO.
+
+  Compilación en cada SO:
+    Linux/macOS:  cargo build --release
+    Windows:      cargo build --release  (mismos comandos, diferente output)
 """
 
 from __future__ import annotations
@@ -23,51 +38,77 @@ from __future__ import annotations
 import json
 import logging
 import os
+import platform
 import subprocess
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Ruta del binario — relativa al directorio de este módulo
 _MODULE_DIR = Path(__file__).resolve().parent
-_BINARY_PATH = _MODULE_DIR.parent / "rust_parser" / "vtr_image_parser"
+_IS_WINDOWS = platform.system() == "Windows"
 
-# Fallback: buscar en PATH si el binario local no está
-_BINARY_NAME = "vtr_image_parser"
+
+def _binary_name() -> str:
+    """
+    Nombre del binario Rust según el SO — con extensión correcta.
+    En Windows, cargo produce vtr_image_parser.exe, no vtr_image_parser.
+    """
+    return "vtr_image_parser.exe" if _IS_WINDOWS else "vtr_image_parser"
+
+
+def _is_executable(path: Path) -> bool:
+    """
+    Verifica si un archivo es ejecutable de forma portable.
+    - Linux/macOS: os.access(path, os.X_OK) es la verificación real.
+    - Windows: os.X_OK siempre retorna True para archivos existentes,
+      así que verificamos solo que exista y sea .exe.
+    """
+    if not path.is_file():
+        return False
+    if _IS_WINDOWS:
+        return path.suffix.lower() == ".exe"
+    return os.access(path, os.X_OK)
 
 
 def _find_binary() -> Path | None:
     """
     Localiza el binario Rust. Orden de búsqueda explícito, no implícito:
-    1. Ruta relativa al módulo (desarrollo local)
-    2. Variable de entorno VTR_RUST_PARSER_BIN (deployment)
+    1. Variable de entorno VTR_RUST_PARSER_BIN (deployment, prioridad máxima)
+    2. Ruta relativa al módulo (desarrollo local, cargo build --release)
     3. PATH del sistema (instalación global)
     No asume que existe — retorna None si no lo encuentra.
     """
-    # 1. Variable de entorno explícita (prioridad máxima)
+    name = _binary_name()
+
+    # 1. Variable de entorno explícita
     env_path = os.environ.get("VTR_RUST_PARSER_BIN")
     if env_path:
         p = Path(env_path)
-        if p.is_file() and os.access(p, os.X_OK):
+        # En Windows, el usuario puede omitir la extensión .exe — la agregamos
+        if _IS_WINDOWS and not p.suffix:
+            p = p.with_suffix(".exe")
+        if _is_executable(p):
             return p
         logger.warning(
             "[rust_bridge] VTR_RUST_PARSER_BIN=%s no es ejecutable o no existe",
             env_path
         )
 
-    # 2. Ruta relativa al módulo (build local con cargo)
+    # 2. Rutas relativas al módulo (build local)
     candidates = [
-        _MODULE_DIR.parent / "rust_parser" / "vtr_image_parser",
-        _MODULE_DIR.parent.parent / "vtr_forensic_rust" / "target" / "release" / "vtr_image_parser",
+        _MODULE_DIR.parent / "rust_parser" / "target" / "release" / name,
+        _MODULE_DIR.parent / "rust_parser" / name,
+        _MODULE_DIR.parent.parent / "vtr_forensic_rust" / "target" / "release" / name,
     ]
     for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
+        if _is_executable(candidate):
             return candidate
 
     # 3. PATH del sistema
     import shutil
-    which = shutil.which(_BINARY_NAME)
+    which = shutil.which(name)
+    # shutil.which ya maneja PATHEXT en Windows correctamente
     if which:
         return Path(which)
 
