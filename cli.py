@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-vtr-forensic-img v0.1.0
+vtr-forensic-img v0.2.0
 cli.py — Interfaz de línea de comandos
 
 Uso:
@@ -9,6 +9,7 @@ Uso:
     python3 cli.py analyze <imagen> --output reporte.txt
     python3 cli.py analyze <imagen> --ela-threshold 20
     python3 cli.py analyze <imagen> --no-ela
+    python3 cli.py analyze <imagen> --strict
 """
 
 import argparse
@@ -19,18 +20,30 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from core.provenance_report import generate, to_json, to_text
+from core.strict_mode import StrictModeViolation
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
     print(f"[vtr-forensic] Analizando: {args.image}", file=sys.stderr)
     print(f"[vtr-forensic] ELA: {'deshabilitado' if args.no_ela else f'habilitado (umbral={args.ela_threshold})'}", file=sys.stderr)
+    if args.strict:
+        print("[vtr-forensic] MODO ESTRICTO — el análisis se detendrá al primer error estructural", file=sys.stderr)
 
-    report = generate(
-        image_source=args.image,
-        ela_quality=args.ela_quality,
-        ela_threshold=args.ela_threshold,
-        include_ela_image=not args.no_ela,
-    )
+    try:
+        report = generate(
+            image_source=args.image,
+            ela_quality=args.ela_quality,
+            ela_threshold=args.ela_threshold,
+            include_ela_image=not args.no_ela,
+            strict=args.strict,
+        )
+    except StrictModeViolation as exc:
+        print(f"\n[STRICT MODE] Análisis detenido: {exc}", file=sys.stderr)
+        print(f"  Campo:  {exc.field_name}", file=sys.stderr)
+        print(f"  Razón:  {exc.reason}", file=sys.stderr)
+        if exc.byte_offset is not None:
+            print(f"  Offset: 0x{exc.byte_offset:X}", file=sys.stderr)
+        return 3  # exit code 3 = violación de modo estricto
 
     if args.json:
         output = to_json(report)
@@ -70,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_analyze.add_argument(
         "--output", "-o",
         help="Guardar reporte a archivo (por defecto: stdout)"
+    )
+    p_analyze.add_argument(
+        "--strict",
+        action="store_true",
+        help="Modo estricto: detener al primer error estructural (default: modo forense, continúa)"
     )
     p_analyze.add_argument(
         "--no-ela",

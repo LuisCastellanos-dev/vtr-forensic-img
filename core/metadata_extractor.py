@@ -146,24 +146,38 @@ def _safe_str(value: Any, field_name: str, flags: SecurityFlags) -> str:
     - Limita longitud a MAX_FIELD_LENGTH
     - Detecta caracteres no imprimibles (potencial injection)
     - Nunca eval() ni exec() — solo str() y strip()
+
+    En modo estricto (si flags tiene _ctx con strict=True), lanza
+    StrictModeViolation en vez de truncar/sanitizar silenciosamente.
     """
+    ctx = getattr(flags, '_ctx', None)
+
     try:
         result = str(value).strip()
     except Exception:
-        flags.parse_errors.append(f"{field_name}: no se pudo convertir a string")
+        if ctx:
+            ctx.record_error(field_name, "no se pudo convertir a string")
+        else:
+            flags.parse_errors.append(f"{field_name}: no se pudo convertir a string")
         return ""
 
     if len(result) > MAX_FIELD_LENGTH:
-        flags.oversized_fields.append(
-            f"{field_name}: {len(result)} chars (truncado a {MAX_FIELD_LENGTH})"
-        )
+        if ctx:
+            ctx.record_oversized(field_name, len(result), MAX_FIELD_LENGTH)
+        else:
+            flags.oversized_fields.append(
+                f"{field_name}: {len(result)} chars (truncado a {MAX_FIELD_LENGTH})"
+            )
         result = result[:MAX_FIELD_LENGTH] + "...[TRUNCADO]"
 
     suspicious = SAFE_PATTERN.findall(result)
     if suspicious:
-        flags.non_printable_chars_in_fields.append(
-            f"{field_name}: {len(suspicious)} caracteres anómalos detectados"
-        )
+        if ctx:
+            ctx.record_non_printable(field_name, len(suspicious))
+        else:
+            flags.non_printable_chars_in_fields.append(
+                f"{field_name}: {len(suspicious)} caracteres anómalos detectados"
+            )
         result = SAFE_PATTERN.sub('?', result)
 
     return result
@@ -274,7 +288,7 @@ def _extract_gps(tags: dict, meta: ImageMetadata) -> None:
         _validate_gps(meta.gps)
 
     except Exception as e:
-        meta.security.parse_errors.append(f"GPS: error general — {str(e)[:100]}")
+        ctx.record_error("GPS", f"error general — {str(e)[:100]}")
 
 
 def _extract_timestamps_filesystem(file_path: Path, meta: ImageMetadata) -> None:
@@ -349,18 +363,33 @@ def _extract_png_chunks(file_path: Path, meta: ImageMetadata) -> None:
         meta.extraction_warnings.append(f"PNG chunks: {str(e)[:100]}")
 
 
-def extract(image_source: str | Path) -> ImageMetadata:
+def extract(image_source: str | Path, strict: bool = False) -> ImageMetadata:
     """
     Punto de entrada principal. Acepta ruta local o URL.
 
     Args:
         image_source: ruta de archivo local (str o Path) o URL HTTP/HTTPS.
+        strict: si True, el análisis se detiene al primer error
+            estructural en vez de continuar registrando anomalías.
+            Ver core/strict_mode.py para la documentación completa
+            de la decisión de diseño.
 
     Returns:
         ImageMetadata con todos los campos extraídos y los flags de
         seguridad correspondientes.
+
+    Raises:
+        StrictModeViolation: solo en modo estricto, cuando cualquier
+            campo o estructura no cumple la especificación del formato.
+            Incluye field_name, reason, y byte_offset exacto.
     """
+    from .strict_mode import AnalysisContext
+
+    ctx = AnalysisContext(strict=strict)
     meta = ImageMetadata()
+    # Inyectar el contexto en SecurityFlags para que _safe_str pueda
+    # consultarlo sin cambiar su firma — los callsites existentes no cambian.
+    meta.security._ctx = ctx  # type: ignore[attr-defined]
     source = str(image_source)
     meta.file_path = source
 
@@ -409,7 +438,7 @@ def extract(image_source: str | Path) -> ImageMetadata:
         meta.sha256, meta.md5 = _compute_hashes(file_path)
         meta.file_size_bytes = file_path.stat().st_size
     except Exception as e:
-        meta.extraction_warnings.append(f"Error al calcular hashes: {str(e)[:100]}")
+        ctx.record_warning("hashes", f"Error al calcular: {str(e)[:100]}")
 
     # --- Timestamps de filesystem ---
     _extract_timestamps_filesystem(file_path, meta)
@@ -434,7 +463,7 @@ def extract(image_source: str | Path) -> ImageMetadata:
                 except Exception:
                     meta.editing.icc_profile_name = "presente (no legible)"
     except Exception as e:
-        meta.security.parse_errors.append(f"Pillow open: {str(e)[:100]}")
+        ctx.record_error("Pillow open", str(e)[:100])
 
     # --- EXIF con exifread (más robusto para raw tags) ---
     try:
@@ -519,7 +548,7 @@ def extract(image_source: str | Path) -> ImageMetadata:
         _extract_gps(tags, meta)
 
     except Exception as e:
-        meta.security.parse_errors.append(f"EXIF (exifread): {str(e)[:150]}")
+        ctx.record_error("EXIF", f"exifread: {str(e)[:150]}")
 
     # --- PNG text chunks ---
     if meta.file_format == 'PNG':
@@ -545,6 +574,15 @@ def extract(image_source: str | Path) -> ImageMetadata:
             f"rust_bridge: no disponible o error — {str(e)[:100]}. "
             f"Análisis continúa con parsers Python solamente."
         )
+
+    # --- Transferir errores del AnalysisContext al ImageMetadata ---
+    # En modo forense, el contexto acumuló errores sin lanzar.
+    # En modo estricto, nunca llegamos aquí si hubo un error (ya lanzó).
+    meta.security.parse_errors.extend(ctx.errors)
+    meta.extraction_warnings.extend(ctx.warnings)
+    meta.security.oversized_fields.extend(ctx.oversized_fields)
+    meta.security.non_printable_chars_in_fields.extend(ctx.non_printable_fields)
+    meta.security.structurally_anomalous.extend(ctx.structural_anomalies)
 
     meta.extraction_complete = True
     return meta

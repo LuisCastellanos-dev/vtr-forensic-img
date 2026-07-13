@@ -37,19 +37,29 @@ def generate(
     ela_quality: int = 95,
     ela_threshold: float = 15.0,
     include_ela_image: bool = True,
+    strict: bool = False,
 ) -> dict:
     """
     Genera el reporte forense completo para una imagen.
+
+    Args:
+        strict: si True, el análisis se detiene al primer error
+            estructural. Ver core/strict_mode.py.
 
     Returns:
         Dict con toda la información del análisis, serializable a JSON.
         Si el módulo de reporte web lo consume, convierte la imagen ELA
         a base64 para incrustarla directamente en el HTML.
+
+    Raises:
+        StrictModeViolation: solo en modo estricto, cuando cualquier
+            campo no cumple la especificación.
     """
     report = {
-        "vtr_forensic_version": "0.1.0",
+        "vtr_forensic_version": "0.2.0",
         "analysis_timestamp": datetime.utcnow().isoformat() + "Z",
         "image_source": str(image_source),
+        "strict_mode": strict,
         "metadata": {},
         "ela": {},
         "consistency": {},
@@ -57,7 +67,7 @@ def generate(
     }
 
     # 1. Extracción de metadata
-    meta: ImageMetadata = extract(image_source)
+    meta: ImageMetadata = extract(image_source, strict=strict)
     report["metadata"] = _dataclass_to_dict(meta)
 
     # 2. ELA
