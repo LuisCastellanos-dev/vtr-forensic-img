@@ -84,6 +84,11 @@ def generate(
     if ela_bytes:
         report["ela_image_b64"] = base64.b64encode(ela_bytes).decode('ascii')
 
+    # 2b. Entropía de Shannon por bloques
+    from .entropy_analyzer import analyze as entropy_analyze
+    entropy_result = entropy_analyze(image_source)
+    report["entropy"] = _dataclass_to_dict(entropy_result)
+
     # 3. Consistency checks
     consistency: ConsistencyReport = check(meta)
     report["consistency"] = _dataclass_to_dict(consistency)
@@ -180,6 +185,26 @@ def to_text(report: dict) -> str:
             lines.append(f"  ⚠ {caveat}")
     else:
         lines.append(f"  No aplicable: {ela.get('skip_reason', 'N/D')}")
+    lines.append("")
+
+    entropy = report.get("entropy", {})
+    lines += [
+        "── ENTROPÍA DE SHANNON (por bloques) ────────────────────────────",
+    ]
+    if entropy.get("applicable"):
+        lines += [
+            f"  Entropía global:   {entropy.get('global_entropy')} bits/byte",
+            f"  Media bloques:     {entropy.get('block_mean_entropy')} ± {entropy.get('block_std_entropy')}",
+            f"  Rango:             [{entropy.get('block_min_entropy')} — {entropy.get('block_max_entropy')}]",
+            f"  Bloques anómalos:  {entropy.get('anomalous_blocks_high', 0)} altos, "
+            f"{entropy.get('anomalous_blocks_low', 0)} bajos "
+            f"({entropy.get('anomalous_ratio', 0)*100:.1f}%)",
+            f"  Confianza:         {entropy.get('confidence', 'N/D')}",
+        ]
+        for caveat in entropy.get("caveats", []):
+            lines.append(f"  ⚠ {caveat}")
+    else:
+        lines.append(f"  No aplicable: {entropy.get('skip_reason', 'N/D')}")
     lines.append("")
 
     consistency = report.get("consistency", {})
