@@ -888,6 +888,30 @@ body {
         <div class="ela-note" id="rpt-ela-note"></div>
       </div>
 
+      <!-- Entropía Shannon -->
+      <div class="section" id="entropy-section" style="display:none">
+        <div class="section-title">Entropía de Shannon (por bloques)</div>
+        <div class="fields">
+          <div class="field">
+            <span class="field-label">Entropía global</span>
+            <span class="field-value mono" id="rpt-entropy-global">—</span>
+          </div>
+          <div class="field">
+            <span class="field-label">Media bloques</span>
+            <span class="field-value mono" id="rpt-entropy-mean">—</span>
+          </div>
+          <div class="field">
+            <span class="field-label">Bloques anómalos</span>
+            <span class="field-value" id="rpt-entropy-anomalies">—</span>
+          </div>
+          <div class="field">
+            <span class="field-label">Confianza</span>
+            <span class="field-value" id="rpt-entropy-conf">—</span>
+          </div>
+        </div>
+        <div class="ela-note" id="rpt-entropy-note"></div>
+      </div>
+
       <!-- Hallazgos -->
       <div class="section">
         <div class="section-title">Hallazgos de consistencia</div>
@@ -1096,6 +1120,23 @@ function renderReport(r) {
     const img = document.getElementById('rpt-ela-img');
     img.src = 'data:image/png;base64,' + r.ela_image_b64;
     img.style.display = 'block';
+  }
+
+  // Entropy
+  const entropy = r.entropy || {};
+  if (entropy.applicable) {
+    document.getElementById('entropy-section').style.display = '';
+    set('rpt-entropy-global', entropy.global_entropy != null ?
+      entropy.global_entropy + ' bits/byte' : '—');
+    set('rpt-entropy-mean', entropy.block_mean_entropy != null ?
+      entropy.block_mean_entropy + ' \u00b1 ' + entropy.block_std_entropy : '—');
+    const eHigh = entropy.anomalous_blocks_high || 0;
+    const eLow = entropy.anomalous_blocks_low || 0;
+    const eRatio = entropy.anomalous_ratio || 0;
+    set('rpt-entropy-anomalies',
+      eHigh + ' altos, ' + eLow + ' bajos (' + (eRatio*100).toFixed(1) + '%)');
+    set('rpt-entropy-conf', entropy.confidence || '—');
+    set('rpt-entropy-note', (entropy.caveats || []).join(' | '));
   }
 
   // Hallazgos
