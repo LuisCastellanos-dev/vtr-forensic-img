@@ -137,7 +137,7 @@ class TestProvenanceReportGenerate:
         report = generate(jpeg_with_gps)
         ts = report["analysis_timestamp"]
         assert "T" in ts
-        assert ts.endswith("Z")
+        assert ts.endswith("+00:00") or ts.endswith("Z")
 
     def test_metadata_tiene_sha256(self, jpeg_with_gps):
         report = generate(jpeg_with_gps)

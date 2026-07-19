@@ -11,7 +11,7 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .consistency_checker import ConsistencyReport, check
@@ -57,7 +57,7 @@ def generate(
     """
     report = {
         "vtr_forensic_version": "0.2.0",
-        "analysis_timestamp": datetime.utcnow().isoformat() + "Z",
+        "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
         "image_source": str(image_source),
         "strict_mode": strict,
         "metadata": {},
