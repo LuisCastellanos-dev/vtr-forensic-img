@@ -79,23 +79,43 @@ Imagen (bytes no confiables)
                   │  sin bytes crudos)
 ┌─────────────────▼──────────────────────────┐
 │  PYTHON — core/rust_bridge.py              │
+│  (portable Linux/macOS/Windows)            │
 │                                            │
-│  Responsabilidad:                          │
-│  • Invocar el binario Rust                 │
-│  • Verificar exit code y parsear JSON      │
-│  • Verificar consistencia de hashes        │
-│    entre Rust y Python                     │
-│  • merge_rust_findings(): agrega           │
-│    hallazgos sin sobreescribir Python      │
+│  • Invocar binario Rust (_binary_name()    │
+│    detecta .exe en Windows)               │
+│  • _is_executable() sin os.X_OK en Win    │
+│  • merge_rust_findings()                   │
 └─────────────────┬──────────────────────────┘
                   │
 ┌─────────────────▼──────────────────────────┐
 │  PYTHON — pipeline de análisis             │
 │                                            │
 │  • metadata_extractor.py: EXIF/XMP/GPS     │
+│    (acepta parámetro strict para modo      │
+│    estricto via AnalysisContext)            │
 │  • ela_analyzer.py: Error Level Analysis   │
+│  • entropy_analyzer.py: entropía Shannon   │
+│    por bloques (v0.2.0)                    │
 │  • consistency_checker.py: hallazgos       │
 │  • provenance_report.py: reporte final     │
+│    (integra metadata + ELA + entropía +    │
+│    consistency en un solo output)           │
+└─────────────────┬──────────────────────────┘
+                  │
+┌─────────────────▼──────────────────────────┐
+│  PYTHON — módulos independientes (v0.2.0)  │
+│                                            │
+│  • strict_mode.py: AnalysisContext          │
+│    centralizado — decide en un solo lugar  │
+│    si registrar error o lanzar             │
+│    StrictModeViolation (exit code 3)       │
+│  • signature_verifier.py: verificación     │
+│    Ed25519 con PyNaCl — sin imports de     │
+│    vtr-continuity (regla de no mezcla)     │
+│  • diff_analyzer.py: comparación           │
+│    diferencial binario/metadata/visual     │
+│    entre dos imágenes provistas por el     │
+│    analista — sin asumir "imagen dorada"   │
 └────────────────────────────────────────────┘
 ```
 
@@ -232,17 +252,54 @@ hallazgos — una por `device.software` y otra por
 **Corrección:** `set(all_software)` antes de iterar, eliminando
 duplicados antes de comparar contra la lista de marcadores de IA.
 
+### Bug real #3 — NamedTemporaryFile en Windows (v0.2.0)
+
+**Síntoma:** en Windows, el worker de análisis no podía abrir la
+imagen temporal que el servidor web escribía.
+
+**Causa:** `NamedTemporaryFile(delete=False)` mantiene el file handle
+abierto en el proceso que lo crea. En Windows, un segundo proceso
+(el worker) no puede abrir un archivo que otro proceso tiene abierto
+— a diferencia de Linux, donde esto funciona sin restricción.
+
+**Corrección:** reemplazar `NamedTemporaryFile` por `tempfile.mkstemp()`
++ `os.close(fd)` explícito antes de pasar la ruta al worker. El
+archivo se cierra completamente antes de que el worker lo abra.
+
+### Bug real #4 — Nombre del binario Rust en Windows (v0.2.0)
+
+**Síntoma:** `_find_binary()` en `rust_bridge.py` nunca encontraba
+el binario Rust en Windows.
+
+**Causa:** `cargo build --release` produce `vtr_image_parser.exe` en
+Windows, no `vtr_image_parser`. El código buscaba el nombre sin
+extensión. Además, `os.access(path, os.X_OK)` retorna True para
+cualquier archivo existente en Windows — no tiene significado real
+como verificación de ejecutabilidad.
+
+**Corrección:** `_binary_name()` retorna el nombre correcto según el
+SO. `_is_executable()` verifica extensión `.exe` en Windows en vez
+de permisos de ejecución. Ambas funciones son portables sin
+condicionales dispersos en el resto del código.
+
 ---
 
-## 4. Qué no está implementado en v0.1.0
+## 4. Estado v0.2.0 — qué existe y qué no
 
 | Componente | Estado | Nota |
 |---|---|---|
-| Interfaz web (FastAPI + HTML) | Planificado v0.2.0 | La imagen ELA ya se genera como bytes en `ela_analyzer.py` — lista para incrustar en HTML como base64 |
-| Tests formales pytest | Planificado v0.2.0 | El pipeline fue probado manualmente contra 3 escenarios reales |
-| Parser WEBP/GIF/TIFF/RAW en Rust | Planificado v0.2.0 | El binario Rust detecta estos formatos por firma y los reporta honestamente como "sin parser específico" |
-| Análisis estegonográfico (LSB) | Fuera de alcance v0.1.0 | Requiere análisis estadístico de distribución de bits — distinto del análisis de metadata |
-| APIs externas de detección de IA | Decisión permanente: NO | Rompe la cadena de custodia forense — ver sección 1 |
+| Interfaz web FastAPI + HTML | ✅ Operativo | Aislamiento por subproceso, CSP estricto, localhost only, entropía visible |
+| Suite pytest (125 tests) | ✅ Operativo | 55 adversariales v0.1.0 + 42 v0.2.0 + 28 pipeline integration |
+| Coverage total | ✅ 80% | provenance_report 87%, diff_analyzer 89%, entropy 84% |
+| Modo estricto `--strict` | ✅ v0.2.0 | AnalysisContext centralizado, exit code 3 |
+| Entropía Shannon por bloques | ✅ v0.2.0 | Complementa ELA, integrado en pipeline y web |
+| Verificación Ed25519 | ✅ v0.2.0 | PyNaCl directo, sin imports de vtr-continuity |
+| Comparación diferencial | ✅ v0.2.0 | Binario + metadata + visual, sin asumir imagen dorada |
+| Portabilidad cross-OS | ✅ v0.2.0 | Linux, macOS, Windows — nombre binario, mkstemp, shell=False |
+| CLI completo | ✅ v0.2.0 | `analyze`, `diff`, `--strict`, `--verify-signature` |
+| Parser WEBP/GIF/TIFF/RAW en Rust | 🔲 Detecta formato, no parsea | El binario reporta "sin parser específico" honestamente |
+| Análisis esteganográfico (LSB) | 🔲 Fuera de alcance | Distinto del análisis de metadata |
+| APIs externas de detección de IA | ❌ Decisión permanente | Rompe la cadena de custodia forense |
 
 ---
 
