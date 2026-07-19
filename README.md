@@ -59,9 +59,13 @@ vtr-forensic-img/
 ├── tests/
 │   ├── conftest.py             — fixtures adversariales construidas byte a byte
 │   ├── test_metadata_extractor.py
+│   ├── test_metadata_extended.py — PNG chunks, thumbnail, GPS full, _safe_str
 │   ├── test_consistency_checker.py
 │   ├── test_ela_analyzer.py
-│   └── test_v020_modules.py    — strict, entropía, Ed25519, diff
+│   ├── test_v020_modules.py    — strict, entropía, Ed25519, diff
+│   ├── test_pipeline_integration.py — provenance_report, generate/to_text/to_json
+│   ├── test_rust_bridge.py     — parse_binary, merge_rust_findings, fallbacks
+│   └── test_adversarial.py     — pentester/auditor/forense cross-module
 ├── README.md
 └── ARCHITECTURE.md
 ```
@@ -170,8 +174,8 @@ los mismos parámetros o cuestionarlos.
 
 | Componente | Estado | Tests |
 |---|---|---|
-| Parser binario Rust (JPEG/PNG) | ✅ Operativo | — |
-| Extracción de metadata EXIF/XMP/GPS | ✅ Operativo | 22 |
+| Parser binario Rust (JPEG/PNG) | ✅ Operativo | 30 (rust_bridge) |
+| Extracción de metadata EXIF/XMP/GPS | ✅ Operativo | 41 (extractor + extended) |
 | Error Level Analysis (ELA) | ✅ Operativo | 14 |
 | Detección de señales de IA generativa | ✅ Operativo | 14 |
 | Consistency checker forense | ✅ Operativo | 13 |
@@ -180,9 +184,11 @@ los mismos parámetros o cuestionarlos.
 | Entropía Shannon por bloques | ✅ v0.2.0 | 10 |
 | Verificación firma Ed25519 | ✅ v0.2.0 | 10 |
 | Comparación diferencial A/B | ✅ v0.2.0 | 12 |
+| Pipeline integration | ✅ v0.2.0 | 28 (provenance_report 87%) |
+| Suite adversarial (pentester/auditor/forense) | ✅ v0.2.0 | 36 |
 | Portabilidad Linux/macOS/Windows | ✅ Aplicado | — |
 | Parser WEBP/GIF/TIFF/RAW en Rust | 🔲 Detecta formato, no parsea | — |
-| **Total tests** | | **97** |
+| **Total tests** | **Coverage: 84%** | **210** |
 
 ## Lo que se construyó en v0.2.0 — y por qué
 
