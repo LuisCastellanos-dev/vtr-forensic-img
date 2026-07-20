@@ -252,6 +252,83 @@ vez de `NamedTemporaryFile`, `shell=False` documentado explícitamente.
   detecta el formato por firma pero no recorre su estructura)
 - No usa APIs externas de detección de IA — decisión deliberada,
   documentada en ARCHITECTURE.md
+- No interpreta el contenido visual de la imagen (no reconoce
+  personas, no lee texto embebido, no detecta anacronismos)
+
+---
+
+## Roadmap v0.3.0 — detección forense de IA generativa
+
+El feedback de campo demostró un gap real: una imagen generada por
+Grok (Trump abrazando a Einstein, con texto "I'm a fake image?")
+recibió riesgo BAJO-MEDIO porque la herramienta solo tenía evidencia
+técnica (ausencia de metadata + ELA limpio + entropía normal). Un
+humano la identifica como IA en 2 segundos por el contenido visual.
+
+El gap no se cierra interpretando contenido — eso es clasificación,
+no forense. Se cierra agregando técnicas estadísticas que detecten
+patrones de generación de IA observables en los bytes del archivo,
+sin depender de bases de datos externas, modelos de ML, ni APIs.
+
+Tres adiciones evaluadas contra la premisa de integridad forense.
+
+**1. Análisis de tablas de cuantización JPEG (`core/quantization_analyzer.py`)**
+
+Las cámaras reales usan tablas de cuantización específicas del
+fabricante (Canon, Nikon, Samsung tienen tablas distintas y
+documentadas). Los generadores de IA (Grok, Midjourney, DALL-E,
+Stable Diffusion) usan tablas genéricas o las de la biblioteca
+de compresión JPEG que emplean (libjpeg, mozjpeg, Pillow). La
+diferencia es observable en los bytes 0xFFC0/0xFFC4 del archivo —
+no requiere interpretación subjetiva.
+
+Lo que detectaría: "la tabla de cuantización de esta imagen no
+corresponde a ningún fabricante de cámara conocido — corresponde
+a [libjpeg estándar / Pillow / mozjpeg]."
+
+**2. Análisis de frecuencia por FFT (`core/frequency_analyzer.py`)**
+
+Las imágenes generadas por IA tienen patrones en el dominio de
+frecuencia que las fotos de cámara no tienen — artefactos de la
+red neuronal que son invisibles a ojo pero detectables con la
+Transformada Rápida de Fourier (FFT). Esto es análisis estadístico
+puro, como la entropía de Shannon que ya implementamos.
+
+Lo que detectaría: "el espectro de frecuencia de esta imagen
+muestra picos periódicos en [frecuencias] que no son consistentes
+con ruido de sensor fotográfico."
+
+**3. Análisis de consistencia de ruido (`core/noise_analyzer.py`)**
+
+Las fotos reales tienen un patrón de ruido del sensor (PRNU —
+Photo Response Non-Uniformity) que es consistente en toda la
+imagen y característico del sensor físico. Las imágenes de IA no
+tienen sensor, así que su "ruido" es sintético y estadísticamente
+distinto — usualmente demasiado uniforme o con distribución
+diferente entre regiones.
+
+Lo que detectaría: "la distribución de ruido en esta imagen es
+[demasiado uniforme / inconsistente entre regiones] — no es
+consistente con un sensor fotográfico real."
+
+**Descartado explícitamente de este roadmap:**
+
+- **Reconocimiento facial / OCR:** requiere modelos de ML externos
+  o APIs. Introduce opacidad — "mi modelo identificó a Einstein"
+  no es evidencia forense verificable. Además rompe la premisa
+  100% offline si usa APIs en la nube.
+- **Base de datos de patrones de generadores de IA:** misma objeción
+  que YARA — va stale en semanas (cada actualización de Midjourney
+  cambia los patrones), y citar "mi base de datos dice que es Grok"
+  sin poder mostrar qué bytes activaron la detección introduce
+  opacidad.
+- **Detección de anacronismos:** requiere base de conocimiento
+  general (quién vivió cuándo). Eso es interpretación de contenido,
+  no análisis forense del artefacto digital.
+- **Clasificación de contenido visual:** el proyecto analiza la
+  imagen como artefacto digital — no interpreta su contenido
+  semántico. "¿Qué evidencia técnica tiene esta imagen?" es la
+  pregunta correcta, no "¿qué muestra esta imagen?"
 
 ---
 
