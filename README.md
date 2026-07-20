@@ -270,7 +270,7 @@ no forense. Se cierra agregando técnicas estadísticas que detecten
 patrones de generación de IA observables en los bytes del archivo,
 sin depender de bases de datos externas, modelos de ML, ni APIs.
 
-Tres adiciones evaluadas contra la premisa de integridad forense.
+Cuatro adiciones evaluadas contra la premisa de integridad forense.
 
 **1. Análisis de tablas de cuantización JPEG (`core/quantization_analyzer.py`)**
 
@@ -310,6 +310,31 @@ diferente entre regiones.
 Lo que detectaría: "la distribución de ruido en esta imagen es
 [demasiado uniforme / inconsistente entre regiones] — no es
 consistente con un sensor fotográfico real."
+
+**4. EntropyProfile — extensión de `core/entropy_analyzer.py`**
+
+El análisis de entropía de v0.2.0 fue diseñado para detectar
+manipulación (bloques anómalos). Para IA generativa, la pregunta
+correcta no es "¿hay bloques anómalos?" sino "¿cómo se comporta
+la distribución en su conjunto?" El módulo existente se extiende
+(sin romper los 210 tests) con una segunda capa de análisis:
+
+- **Distribución:** skewness y kurtosis de la entropía por bloques.
+  Fotos reales tienen cola larga (kurtosis alta); IA tiende a
+  distribución más uniforme (kurtosis baja).
+- **Coherencia espacial:** gradiente de entropía entre bloques
+  adyacentes. Fotos reales tienen transiciones graduales; IA puede
+  ser demasiado suave o artificialmente abrupta.
+- **Entropía por canal (R, G, B):** un sensor real tiene ruido
+  distinto por canal (azul tiene más ruido en CMOS); IA produce
+  los tres canales con calidad estadística similar.
+- **Multi-escala (32, 64, 128 px):** mismos datos a tres escalas.
+  Si la imagen es real, las distribuciones son proporcionales;
+  si es IA, pueden divergir.
+
+Lo que detectaría: "distribución de entropía demasiado uniforme
+(kurtosis 2.1 vs 4.5+ esperado en foto real), canales R/G/B
+con correlación 0.98 (sensor real produce 0.85-0.92)."
 
 **Descartado explícitamente de este roadmap:**
 
