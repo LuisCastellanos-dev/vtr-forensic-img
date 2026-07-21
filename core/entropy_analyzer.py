@@ -79,6 +79,51 @@ class EntropyBlock:
 
 
 @dataclass
+class EntropyProfile:
+    """
+    Perfil de entropía v0.3.0 — caracterización de IA generativa.
+
+    Complementa el análisis de anomalías de v0.2.0 con métricas que
+    distinguen fotos reales de imágenes generadas por IA:
+
+    - Distribución: skewness y kurtosis de la entropía por bloques.
+      Fotos reales tienen cola larga (kurtosis > 3); IA tiende a
+      distribución más uniforme (kurtosis < 3).
+    - Coherencia espacial: gradiente de entropía entre bloques
+      adyacentes. Fotos reales tienen transiciones graduales.
+    - Por canal (R, G, B): un sensor real tiene ruido distinto por
+      canal; IA produce canales estadísticamente similares.
+    - Multi-escala: mismos datos a 32, 64, 128 px. Imágenes reales
+      producen distribuciones proporcionales; IA puede divergir.
+    """
+    # Distribución
+    skewness: float | None = None
+    kurtosis: float | None = None
+
+    # Coherencia espacial (gradientes entre bloques adyacentes)
+    spatial_gradient_mean: float | None = None
+    spatial_gradient_std: float | None = None
+
+    # Entropía por canal
+    channel_entropy_r: float | None = None
+    channel_entropy_g: float | None = None
+    channel_entropy_b: float | None = None
+    channel_correlation_rg: float | None = None
+    channel_correlation_rb: float | None = None
+    channel_correlation_gb: float | None = None
+
+    # Multi-escala
+    multiscale_32_mean: float | None = None
+    multiscale_64_mean: float | None = None
+    multiscale_128_mean: float | None = None
+    multiscale_consistency: float | None = None  # std de las 3 medias
+
+    # Interpretación IA
+    ai_indicators: list[str] = field(default_factory=list)
+    ai_confidence: str = ""
+
+
+@dataclass
 class EntropyResult:
     applicable: bool = True
     skip_reason: str = ""
@@ -102,6 +147,9 @@ class EntropyResult:
     interpretation: str = ""
     confidence: str = ""
     caveats: list[str] = field(default_factory=list)
+
+    # v0.3.0 — perfil de caracterización IA
+    profile: EntropyProfile | None = None
 
 
 def _shannon_entropy(data: bytes) -> float:
@@ -184,6 +232,197 @@ def _interpret(result: EntropyResult) -> None:
         "naturalmente variable — una imagen con cielo (baja entropía) "
         "y vegetación (alta entropía) tendrá variación natural."
     )
+
+
+def _compute_spatial_gradients(
+    block_entropies: list[float],
+    block_coords: list[tuple[int, int]],
+    block_size: int,
+) -> tuple[float, float]:
+    """
+    Calcula el gradiente de entropía entre bloques adyacentes.
+    Retorna (media, std) de los gradientes absolutos.
+    """
+    # Construir mapa de posición → entropía
+    pos_map = {}
+    for i, (x, y) in enumerate(block_coords):
+        pos_map[(x, y)] = block_entropies[i]
+
+    gradients = []
+    for (x, y), e in pos_map.items():
+        # Vecinos: derecha e inferior (evitar doble conteo)
+        right = (x + block_size, y)
+        below = (x, y + block_size)
+        if right in pos_map:
+            gradients.append(abs(e - pos_map[right]))
+        if below in pos_map:
+            gradients.append(abs(e - pos_map[below]))
+
+    if not gradients:
+        return 0.0, 0.0
+
+    g = np.array(gradients)
+    return round(float(np.mean(g)), 4), round(float(np.std(g)), 4)
+
+
+def _compute_channel_entropy(arr: np.ndarray) -> tuple[float, float, float]:
+    """Entropía Shannon por canal R, G, B."""
+    r = _shannon_entropy(arr[:, :, 0].tobytes())
+    g = _shannon_entropy(arr[:, :, 1].tobytes())
+    b = _shannon_entropy(arr[:, :, 2].tobytes())
+    return round(r, 4), round(g, 4), round(b, 4)
+
+
+def _compute_channel_correlations(arr: np.ndarray) -> tuple[float, float, float]:
+    """Correlación de Pearson entre canales R-G, R-B, G-B."""
+    r = arr[:, :, 0].flatten().astype(np.float64)
+    g = arr[:, :, 1].flatten().astype(np.float64)
+    b = arr[:, :, 2].flatten().astype(np.float64)
+
+    def _corr(a, b_arr):
+        if np.std(a) < 1e-10 or np.std(b_arr) < 1e-10:
+            return 0.0
+        return float(np.corrcoef(a, b_arr)[0, 1])
+
+    return (
+        round(_corr(r, g), 4),
+        round(_corr(r, b), 4),
+        round(_corr(g, b), 4),
+    )
+
+
+def _compute_multiscale(arr: np.ndarray, h: int, w: int) -> dict[int, float]:
+    """Entropía media por bloques a tres escalas: 32, 64, 128."""
+    scales = {}
+    for bs in (32, 64, 128):
+        entropies = []
+        for y in range(0, h - bs + 1, bs):
+            for x in range(0, w - bs + 1, bs):
+                block = arr[y:y + bs, x:x + bs]
+                entropies.append(_shannon_entropy(block.tobytes()))
+        if entropies:
+            scales[bs] = round(float(np.mean(entropies)), 4)
+    return scales
+
+
+def _compute_profile(
+    arr: np.ndarray,
+    h: int, w: int,
+    block_entropies: list[float],
+    block_coords: list[tuple[int, int]],
+    block_size: int,
+) -> EntropyProfile:
+    """Calcula el perfil de caracterización IA v0.3.0."""
+    from scipy import stats as sp_stats
+
+    profile = EntropyProfile()
+    entropies = np.array(block_entropies)
+
+    # Distribución: skewness y kurtosis
+    # Solo calcular si hay varianza real — scipy lanza RuntimeWarning
+    # con datos de varianza ~0 (todos los bloques con la misma entropía)
+    if len(entropies) >= 4 and float(np.std(entropies)) > 1e-8:
+        sk = float(sp_stats.skew(entropies))
+        ku = float(sp_stats.kurtosis(entropies, fisher=False))
+        profile.skewness = round(sk, 4) if not math.isnan(sk) else 0.0
+        profile.kurtosis = round(ku, 4) if not math.isnan(ku) else 0.0
+    elif len(entropies) >= 4:
+        # Varianza ~0: todos los bloques idénticos
+        profile.skewness = 0.0
+        profile.kurtosis = 0.0
+
+    # Coherencia espacial
+    grad_mean, grad_std = _compute_spatial_gradients(
+        block_entropies, block_coords, block_size
+    )
+    profile.spatial_gradient_mean = grad_mean
+    profile.spatial_gradient_std = grad_std
+
+    # Entropía por canal
+    e_r, e_g, e_b = _compute_channel_entropy(arr)
+    profile.channel_entropy_r = e_r
+    profile.channel_entropy_g = e_g
+    profile.channel_entropy_b = e_b
+
+    # Correlaciones inter-canal
+    corr_rg, corr_rb, corr_gb = _compute_channel_correlations(arr)
+    profile.channel_correlation_rg = corr_rg
+    profile.channel_correlation_rb = corr_rb
+    profile.channel_correlation_gb = corr_gb
+
+    # Multi-escala
+    scales = _compute_multiscale(arr, h, w)
+    profile.multiscale_32_mean = scales.get(32)
+    profile.multiscale_64_mean = scales.get(64)
+    profile.multiscale_128_mean = scales.get(128)
+    scale_values = [v for v in scales.values() if v is not None]
+    if len(scale_values) >= 2:
+        profile.multiscale_consistency = round(float(np.std(scale_values)), 4)
+
+    # Interpretación de indicadores IA
+    _interpret_ai_profile(profile)
+
+    return profile
+
+
+def _interpret_ai_profile(profile: EntropyProfile) -> None:
+    """Interpreta el perfil en lenguaje forense respecto a IA."""
+    indicators = []
+
+    # Kurtosis baja → distribución demasiado uniforme
+    if profile.kurtosis is not None and profile.kurtosis < 2.5:
+        indicators.append(
+            f"Kurtosis baja ({profile.kurtosis:.2f}, esperado >3.0 en foto real) — "
+            f"distribución de entropía demasiado uniforme, consistente con IA"
+        )
+
+    # Gradientes demasiado suaves
+    if profile.spatial_gradient_mean is not None and profile.spatial_gradient_mean < 0.05:
+        indicators.append(
+            f"Gradientes espaciales muy suaves ({profile.spatial_gradient_mean:.4f}) — "
+            f"transiciones entre bloques demasiado uniformes"
+        )
+
+    # Canales demasiado correlacionados
+    correlations = [
+        c for c in [
+            profile.channel_correlation_rg,
+            profile.channel_correlation_rb,
+            profile.channel_correlation_gb,
+        ] if c is not None
+    ]
+    if correlations and all(c > 0.95 for c in correlations):
+        avg_corr = sum(correlations) / len(correlations)
+        indicators.append(
+            f"Canales RGB excesivamente correlacionados ({avg_corr:.3f}) — "
+            f"sensor real produce correlación 0.85-0.92"
+        )
+
+    # Entropía por canal demasiado similar
+    channels = [
+        e for e in [
+            profile.channel_entropy_r,
+            profile.channel_entropy_g,
+            profile.channel_entropy_b,
+        ] if e is not None
+    ]
+    if len(channels) == 3:
+        channel_std = float(np.std(channels))
+        if channel_std < 0.01:
+            indicators.append(
+                f"Entropía por canal casi idéntica (std={channel_std:.4f}) — "
+                f"sensor real tiene ruido distinto por canal"
+            )
+
+    profile.ai_indicators = indicators
+    if len(indicators) >= 3:
+        profile.ai_confidence = "ALTA sospecha de IA generativa por perfil de entropía"
+    elif len(indicators) >= 2:
+        profile.ai_confidence = "MODERADA sospecha de IA generativa"
+    elif len(indicators) >= 1:
+        profile.ai_confidence = "BAJA sospecha — un indicador no es concluyente"
+    else:
+        profile.ai_confidence = "Sin indicadores de IA en el perfil de entropía"
 
 
 def analyze(
@@ -292,6 +531,16 @@ def analyze(
         # Ordenar por desviación más extrema y limitar
         anomalies.sort(key=lambda a: abs(a.deviation_from_mean), reverse=True)
         result.top_anomalies = anomalies[:max_anomalies_reported]
+
+        # v0.3.0 — Perfil de caracterización IA
+        try:
+            result.profile = _compute_profile(
+                arr, h, w, block_entropies, block_coords, block_size
+            )
+        except Exception as e:
+            logger.warning("EntropyProfile error (non-fatal): %s", str(e))
+            # El perfil es complementario — si falla, el análisis v0.2.0
+            # sigue siendo válido
 
         _interpret(result)
 
