@@ -42,7 +42,10 @@ vtr-forensic-img/
 │   ├── __init__.py
 │   ├── metadata_extractor.py   — EXIF/XMP/GPS/timestamps (Python)
 │   ├── ela_analyzer.py         — Error Level Analysis
-│   ├── entropy_analyzer.py     — entropía de Shannon por bloques
+│   ├── entropy_analyzer.py     — entropía de Shannon por bloques + EntropyProfile v0.3.0
+│   ├── quantization_analyzer.py — tablas DQT JPEG, fingerprinting IJG vs cámara (v0.3.0)
+│   ├── frequency_analyzer.py  — FFT espectral, pendiente 1/f, picos periódicos (v0.3.0)
+│   ├── noise_analyzer.py      — PRNU consistencia de ruido de sensor (v0.3.0)
 │   ├── consistency_checker.py  — hallazgos forenses + señales AI
 │   ├── signature_verifier.py   — verificación Ed25519 (PyNaCl, sin vtr-continuity)
 │   ├── diff_analyzer.py        — comparación diferencial binario/metadata/visual
@@ -170,7 +173,7 @@ explícitamente, incluyendo el umbral y la calidad de recompresión
 usados, para que cualquier auditor pueda reproducir el análisis con
 los mismos parámetros o cuestionarlos.
 
-## Estado actual (v0.2.0 — operativo)
+## Estado actual (v0.3.0 — operativo)
 
 | Componente | Estado | Tests |
 |---|---|---|
@@ -181,9 +184,12 @@ los mismos parámetros o cuestionarlos.
 | Consistency checker forense | ✅ Operativo | 13 |
 | Interfaz web FastAPI (localhost, CSP) | ✅ Operativo | — |
 | Modo estricto `--strict` | ✅ v0.2.0 | 10 |
-| Entropía Shannon por bloques | ✅ v0.2.0 | 10 |
+| Entropía Shannon + EntropyProfile | ✅ v0.3.0 | 10 |
 | Verificación firma Ed25519 | ✅ v0.2.0 | 10 |
 | Comparación diferencial A/B | ✅ v0.2.0 | 12 |
+| Tablas de cuantización JPEG (DQT) | ✅ v0.3.0 | — |
+| Análisis de frecuencia FFT | ✅ v0.3.0 | — |
+| Consistencia de ruido PRNU | ✅ v0.3.0 | — |
 | Pipeline integration | ✅ v0.2.0 | 28 (provenance_report 87%) |
 | Suite adversarial (pentester/auditor/forense) | ✅ v0.2.0 | 36 |
 | Portabilidad Linux/macOS/Windows | ✅ Aplicado | — |
@@ -246,7 +252,7 @@ vez de `NamedTemporaryFile`, `shell=False` documentado explícitamente.
 - **APIs externas de detección de IA:** decisión permanente. Rompe
   la cadena de custodia forense.
 
-## Lo que este proyecto NO hace (v0.2.0)
+## Lo que este proyecto NO hace (v0.3.0)
 
 - No analiza WEBP, GIF, TIFF, o RAW internamente (el parser Rust
   detecta el formato por firma pero no recorre su estructura)
@@ -257,7 +263,7 @@ vez de `NamedTemporaryFile`, `shell=False` documentado explícitamente.
 
 ---
 
-## Roadmap v0.3.0 — detección forense de IA generativa
+## Lo que se construyó en v0.3.0 — detección forense de IA generativa
 
 El feedback de campo demostró un gap real: una imagen generada por
 Grok (Trump abrazando a Einstein, con texto "I'm a fake image?")
@@ -270,7 +276,7 @@ no forense. Se cierra agregando técnicas estadísticas que detecten
 patrones de generación de IA observables en los bytes del archivo,
 sin depender de bases de datos externas, modelos de ML, ni APIs.
 
-Cuatro adiciones evaluadas contra la premisa de integridad forense.
+Cuatro módulos implementados.
 
 **1. Análisis de tablas de cuantización JPEG (`core/quantization_analyzer.py`)**
 
