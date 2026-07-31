@@ -56,7 +56,7 @@ def generate(
             campo no cumple la especificación.
     """
     report = {
-        "vtr_forensic_version": "0.2.0",
+        "vtr_forensic_version": "0.3.0",
         "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
         "image_source": str(image_source),
         "strict_mode": strict,
@@ -84,10 +84,25 @@ def generate(
     if ela_bytes:
         report["ela_image_b64"] = base64.b64encode(ela_bytes).decode('ascii')
 
-    # 2b. Entropía de Shannon por bloques
+    # 2b. Entropía de Shannon por bloques (incluye EntropyProfile v0.3.0)
     from .entropy_analyzer import analyze as entropy_analyze
     entropy_result = entropy_analyze(image_source)
     report["entropy"] = _dataclass_to_dict(entropy_result)
+
+    # 2c. Tablas de cuantización JPEG (v0.3.0)
+    from .quantization_analyzer import analyze as quant_analyze
+    quant_result = quant_analyze(image_source)
+    report["quantization"] = _dataclass_to_dict(quant_result)
+
+    # 2d. Análisis de frecuencia FFT (v0.3.0)
+    from .frequency_analyzer import analyze as freq_analyze
+    freq_result = freq_analyze(image_source)
+    report["frequency"] = _dataclass_to_dict(freq_result)
+
+    # 2e. Consistencia de ruido PRNU (v0.3.0)
+    from .noise_analyzer import analyze as noise_analyze
+    noise_result = noise_analyze(image_source)
+    report["noise"] = _dataclass_to_dict(noise_result)
 
     # 3. Consistency checks
     consistency: ConsistencyReport = check(meta)
@@ -205,6 +220,91 @@ def to_text(report: dict) -> str:
             lines.append(f"  ⚠ {caveat}")
     else:
         lines.append(f"  No aplicable: {entropy.get('skip_reason', 'N/D')}")
+    lines.append("")
+
+    # EntropyProfile v0.3.0
+    profile = entropy.get("profile")
+    if profile and isinstance(profile, dict):
+        lines += [
+            "── PERFIL DE ENTROPÍA (caracterización IA) ──────────────────────",
+            f"  Skewness:      {profile.get('skewness', 'N/D')}",
+            f"  Kurtosis:      {profile.get('kurtosis', 'N/D')} (foto real: >3.0)",
+            f"  Gradiente esp.: {profile.get('spatial_gradient_mean', 'N/D')} ± {profile.get('spatial_gradient_std', 'N/D')}",
+            f"  Canal R:        {profile.get('channel_entropy_r', 'N/D')} bits/byte",
+            f"  Canal G:        {profile.get('channel_entropy_g', 'N/D')} bits/byte",
+            f"  Canal B:        {profile.get('channel_entropy_b', 'N/D')} bits/byte",
+            f"  Corr R-G:       {profile.get('channel_correlation_rg', 'N/D')}",
+            f"  Corr R-B:       {profile.get('channel_correlation_rb', 'N/D')}",
+            f"  Corr G-B:       {profile.get('channel_correlation_gb', 'N/D')}",
+            f"  Multi-escala:   32={profile.get('multiscale_32_mean', 'N/D')} | "
+            f"64={profile.get('multiscale_64_mean', 'N/D')} | "
+            f"128={profile.get('multiscale_128_mean', 'N/D')}",
+            f"  IA confianza:   {profile.get('ai_confidence', 'N/D')}",
+        ]
+        for ind in profile.get("ai_indicators", []):
+            lines.append(f"  ⚠ {ind}")
+        lines.append("")
+
+    # Cuantización JPEG (v0.3.0)
+    quant = report.get("quantization", {})
+    lines += [
+        "── TABLAS DE CUANTIZACIÓN JPEG ──────────────────────────────────",
+    ]
+    if quant.get("applicable"):
+        lines += [
+            f"  Tablas encontradas: {quant.get('num_tables', 0)}",
+            f"  Calidad estimada:   {quant.get('estimated_quality', 'N/D')}%",
+            f"  Escalado estándar:  {'SÍ (software/IA)' if quant.get('is_standard_table') else 'NO (cámara/especializado)'}",
+        ]
+        match = quant.get("matches_known_library")
+        if match:
+            lines.append(f"  Coincide con:       {match}")
+        lines.append(f"  Relevancia IA:      {quant.get('ai_relevant', 'N/D')}")
+        for f in quant.get("findings", []):
+            lines.append(f"  → {f}")
+    else:
+        lines.append(f"  No aplicable: {quant.get('skip_reason', 'N/D')}")
+    lines.append("")
+
+    # Frecuencia FFT (v0.3.0)
+    freq = report.get("frequency", {})
+    lines += [
+        "── ANÁLISIS DE FRECUENCIA (FFT) ─────────────────────────────────",
+    ]
+    if freq.get("applicable"):
+        lines += [
+            f"  Pendiente espectral: {freq.get('spectral_slope', 'N/D')} (foto real: -2.0 a -3.0)",
+            f"  R² del ajuste:      {freq.get('slope_r_squared', 'N/D')}",
+            f"  Energía alta freq:  {(freq.get('high_freq_energy_ratio', 0) or 0)*100:.1f}%",
+            f"  Picos periódicos:   {freq.get('periodic_peaks_detected', 0)}",
+            f"  Simetría espectral: {freq.get('spectral_symmetry', 'N/D')}",
+            f"  Relevancia IA:      {freq.get('ai_relevant', 'N/D')}",
+        ]
+        for caveat in freq.get("caveats", []):
+            lines.append(f"  ⚠ {caveat}")
+    else:
+        lines.append(f"  No aplicable: {freq.get('skip_reason', 'N/D')}")
+    lines.append("")
+
+    # Ruido PRNU (v0.3.0)
+    noise = report.get("noise", {})
+    lines += [
+        "── CONSISTENCIA DE RUIDO (PRNU) ─────────────────────────────────",
+    ]
+    if noise.get("applicable"):
+        lines += [
+            f"  Ruido std:          {noise.get('noise_std', 'N/D')}",
+            f"  Uniformidad var.:   {noise.get('variance_uniformity', 'N/D')} (sensor real: 0.2-0.8)",
+            f"  Gaussiano:          {'SÍ' if noise.get('is_gaussian_like') else 'NO' if noise.get('is_gaussian_like') is False else 'N/D'}",
+            f"  Corr inter-regional: {noise.get('cross_region_correlation', 'N/D')}",
+            f"  Ruido R/G/B:        {noise.get('noise_std_r', 'N/D')} / {noise.get('noise_std_g', 'N/D')} / {noise.get('noise_std_b', 'N/D')}",
+            f"  Ratio B/G:          {noise.get('channel_noise_ratio_bg', 'N/D')} (sensor CMOS: >1.1)",
+            f"  Relevancia IA:      {noise.get('ai_relevant', 'N/D')}",
+        ]
+        for caveat in noise.get("caveats", []):
+            lines.append(f"  ⚠ {caveat}")
+    else:
+        lines.append(f"  No aplicable: {noise.get('skip_reason', 'N/D')}")
     lines.append("")
 
     consistency = report.get("consistency", {})

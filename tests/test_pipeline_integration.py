@@ -131,7 +131,7 @@ class TestProvenanceReportGenerate:
 
     def test_version_es_020(self, jpeg_with_gps):
         report = generate(jpeg_with_gps)
-        assert report["vtr_forensic_version"] == "0.2.0"
+        assert report["vtr_forensic_version"] == "0.3.0"
 
     def test_timestamp_es_iso(self, jpeg_with_gps):
         report = generate(jpeg_with_gps)
@@ -243,7 +243,7 @@ class TestToJson:
         report = generate(jpeg_with_gps)
         j = to_json(report)
         parsed = json.loads(j)
-        assert parsed["vtr_forensic_version"] == "0.2.0"
+        assert parsed["vtr_forensic_version"] == "0.3.0"
         assert "metadata" in parsed
         assert "entropy" in parsed
 

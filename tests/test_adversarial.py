@@ -173,7 +173,7 @@ class TestAuditor_ReportStructure:
         p = tmp_path / "test.jpg"
         Image.new("RGB", (50, 50)).save(p, format="JPEG")
         report = generate(p)
-        assert report["vtr_forensic_version"] == "0.2.0"
+        assert report["vtr_forensic_version"] == "0.3.0"
 
     def test_reporte_siempre_tiene_timestamp(self, tmp_path):
         p = tmp_path / "test.jpg"
@@ -362,4 +362,4 @@ class TestForense_IntegridadCadenaCustodia:
         report = generate(p, include_ela_image=False)
         j = to_json(report)
         parsed = json.loads(j)
-        assert parsed["vtr_forensic_version"] == "0.2.0"
+        assert parsed["vtr_forensic_version"] == "0.3.0"
