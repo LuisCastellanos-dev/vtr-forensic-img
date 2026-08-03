@@ -95,11 +95,16 @@ Imagen (bytes no confiables)
 │    estricto via AnalysisContext)            │
 │  • ela_analyzer.py: Error Level Analysis   │
 │  • entropy_analyzer.py: entropía Shannon   │
-│    por bloques (v0.2.0)                    │
+│    por bloques + EntropyProfile (v0.3.0)   │
+│  • quantization_analyzer.py: tablas DQT    │
+│    JPEG, fingerprinting (v0.3.0)           │
+│  • frequency_analyzer.py: espectro FFT,    │
+│    pendiente espectral (v0.3.0)            │
+│  • noise_analyzer.py: PRNU, varianza de    │
+│    ruido por canal y región (v0.3.0)       │
 │  • consistency_checker.py: hallazgos       │
 │  • provenance_report.py: reporte final     │
-│    (integra metadata + ELA + entropía +    │
-│    consistency en un solo output)           │
+│    (integra todos los módulos anteriores)  │
 └─────────────────┬──────────────────────────┘
                   │
 ┌─────────────────▼──────────────────────────┐
@@ -212,6 +217,31 @@ En Rust, la función equivalente `sanitize_bytes()` aplica el mismo
 principio: los bytes no-ASCII-printable se representan como `\xNN`,
 sin eliminarlos, porque su presencia puede ser información forense.
 
+### Módulos de análisis v0.3.0 — principio de observabilidad directa
+
+Los cuatro módulos añadidos en v0.3.0 comparten una restricción de
+diseño deliberada: cada señal reportada debe ser observable
+directamente en los bytes del archivo, sin requerir bases de datos
+externas, modelos entrenados, ni comparación contra imágenes de
+referencia.
+
+- `quantization_analyzer.py`: lee los markers DQT (0xFFDB) byte a
+  byte del JPEG — no usa Pillow para esto, porque queremos los bytes
+  exactos del archivo para la cadena de custodia.
+- `frequency_analyzer.py`: aplica FFT 2D sobre los píxeles — el
+  espectro de potencia es una propiedad matemática de los datos, sin
+  consultas externas.
+- `noise_analyzer.py`: extrae el ruido residual por diferencia
+  imagen–suavizado — observable y reproducible con los mismos bytes.
+- `entropy_analyzer.py` (EntropyProfile): skewness, kurtosis,
+  gradientes espaciales, correlaciones inter-canal y multi-escala
+  son métricas estadísticas puras sobre los píxeles.
+
+Esta restricción es forense, no técnica: un hallazgo que depende de
+una base de datos externa o un modelo no puede ser reproducido
+independientemente por un auditor. Un hallazgo que depende solo de
+los bytes del archivo sí puede serlo.
+
 ---
 
 ## 3. Hallazgos reales durante el desarrollo
@@ -284,15 +314,18 @@ condicionales dispersos en el resto del código.
 
 ---
 
-## 4. Estado v0.2.0 — qué existe y qué no
+## 4. Estado v0.3.0 — qué existe y qué no
 
 | Componente | Estado | Nota |
 |---|---|---|
-| Interfaz web FastAPI + HTML | ✅ Operativo | Aislamiento por subproceso, CSP estricto, localhost only, entropía visible |
-| Suite pytest (125 tests) | ✅ Operativo | 55 adversariales v0.1.0 + 42 v0.2.0 + 28 pipeline integration |
-| Coverage total | ✅ 80% | provenance_report 87%, diff_analyzer 89%, entropy 84% |
+| Interfaz web FastAPI + HTML | ✅ Operativo | Aislamiento por subproceso, CSP estricto, localhost only, módulos v0.3.0 visibles |
+| Suite pytest (272 tests) | ✅ Operativo | 210 heredados v0.1.0/v0.2.0 + 62 nuevos v0.3.0 |
+| Coverage total | ✅ 84% | provenance_report 87%, diff_analyzer 89%, entropy 84% |
 | Modo estricto `--strict` | ✅ v0.2.0 | AnalysisContext centralizado, exit code 3 |
-| Entropía Shannon por bloques | ✅ v0.2.0 | Complementa ELA, integrado en pipeline y web |
+| Entropía Shannon + EntropyProfile | ✅ v0.3.0 | Skewness, kurtosis, gradientes espaciales, por canal, multi-escala |
+| Tablas de cuantización JPEG | ✅ v0.3.0 | DQT parsing, fingerprinting IJG, calidad estimada |
+| Análisis de frecuencia FFT | ✅ v0.3.0 | Pendiente espectral, ratio alta frecuencia, picos periódicos |
+| Consistencia de ruido PRNU | ✅ v0.3.0 | Varianza por región, Gaussianidad, correlación inter-regional, ratio B/G |
 | Verificación Ed25519 | ✅ v0.2.0 | PyNaCl directo, sin imports de vtr-continuity |
 | Comparación diferencial | ✅ v0.2.0 | Binario + metadata + visual, sin asumir imagen dorada |
 | Portabilidad cross-OS | ✅ v0.2.0 | Linux, macOS, Windows — nombre binario, mkstemp, shell=False |
