@@ -364,3 +364,25 @@ con correlación 0.98 (sensor real produce 0.85-0.92)."
 ---
 
 Vector Telemetry Research © 2026 — SIGNAL. VECTOR. INTELLIGENCE.
+
+## VTR Ecosystem Integration
+
+`vtr-forensic-img` integrates with [cryptofault](https://github.com/LuisCastellanos-dev/cryptofault) as part of the VTR toolchain.
+
+### Level 1 Pipeline — Network + Forensic correlation
+
+```sh
+# Step 1 — cryptofault analyzes network traffic
+cryptofault scan --pcap capture.pcap --format json > cf_report.json
+
+# Step 2 — vtr-forensic-img analyzes image with network context
+python3 cli.py analyze image.jpg --context cf_report.json --json > forensic_report.json
+```
+
+The `--context` flag embeds cryptofault findings into the forensic report
+under `external_context`. The context is always marked `context_unverified: true`
+and never affects the forensic analysis chain of custody.
+
+**Security constraints:** max 50KB, `.json` extension required, max nesting
+depth 5 levels. A warning is printed when network context is added to a
+forensic report.
