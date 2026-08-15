@@ -24,10 +24,21 @@ from core.strict_mode import StrictModeViolation
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
+    from core.context_loader import load as load_context, ContextLoadError, CONTEXT_WARNING
     print(f"[vtr-forensic] Analizando: {args.image}", file=sys.stderr)
     print(f"[vtr-forensic] ELA: {'deshabilitado' if args.no_ela else f'habilitado (umbral={args.ela_threshold})'}", file=sys.stderr)
     if args.strict:
         print("[vtr-forensic] MODO ESTRICTO — el análisis se detendrá al primer error estructural", file=sys.stderr)
+
+    # Mitigación 8 — warning de información sensible
+    context = None
+    if getattr(args, 'context', None):
+        print(CONTEXT_WARNING, file=sys.stderr)
+        try:
+            context = load_context(args.context)
+            print(f'[vtr-forensic] Contexto cargado: {args.context} — {len(context.get("findings", []))} hallazgos', file=sys.stderr)
+        except ContextLoadError as e:
+            print(f'[vtr-forensic] ADVERTENCIA: contexto ignorado — {e}', file=sys.stderr)
 
     try:
         report = generate(
@@ -36,6 +47,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             ela_threshold=args.ela_threshold,
             include_ela_image=not args.no_ela,
             strict=args.strict,
+            context=context,
         )
     except StrictModeViolation as exc:
         print(f"\n[STRICT MODE] Análisis detenido: {exc}", file=sys.stderr)
@@ -236,6 +248,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_analyze.add_argument(
         "--public-key",
         help="Ruta al archivo de llave pública Ed25519 (32 bytes)"
+    )
+    p_analyze.add_argument(
+        '--context',
+        metavar='CF_REPORT',
+        default=None,
+        help='cryptofault JSON report to include as external context (max 50KB)',
     )
     p_analyze.set_defaults(func=cmd_analyze)
 
