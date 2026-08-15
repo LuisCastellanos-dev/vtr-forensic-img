@@ -34,6 +34,7 @@ def _dataclass_to_dict(obj) -> dict:
 
 def generate(
     image_source: str | Path,
+    context: dict | None = None,
     ela_quality: int = 95,
     ela_threshold: float = 15.0,
     include_ela_image: bool = True,
@@ -118,6 +119,9 @@ def generate(
                 "md5": meta_dict.get("md5") or "",
             }
 
+    # Contexto externo — Nivel 1 integración ecosistema VTR
+    if context is not None:
+        report["external_context"] = context
     return report
 
 
