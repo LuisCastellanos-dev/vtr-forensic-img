@@ -321,8 +321,10 @@ class TestForense_Determinismo:
         img.save(p, format="JPEG", quality=85)
         r1 = generate(p, include_ela_image=False)
         r2 = generate(p, include_ela_image=False)
-        # Timestamps difieren, pero metadata y consistency no
-        assert r1["metadata"] == r2["metadata"]
+        # Timestamps de filesystem difieren entre llamadas — excluir de comparación
+        m1 = {k: v for k, v in r1["metadata"].items() if k != "timestamps"}
+        m2 = {k: v for k, v in r2["metadata"].items() if k != "timestamps"}
+        assert m1 == m2
         assert r1["consistency"] == r2["consistency"]
 
 
