@@ -61,6 +61,7 @@ def generate(
         "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
         "image_source": str(image_source),
         "strict_mode": strict,
+        "provenance_scope": "artifact_only",
         "metadata": {},
         "ela": {},
         "consistency": {},
@@ -89,21 +90,25 @@ def generate(
     from .entropy_analyzer import analyze as entropy_analyze
     entropy_result = entropy_analyze(image_source)
     report["entropy"] = _dataclass_to_dict(entropy_result)
+    report["entropy"]["calibration_status"] = "author_selected"
 
     # 2c. Tablas de cuantización JPEG (v0.3.0)
     from .quantization_analyzer import analyze as quant_analyze
     quant_result = quant_analyze(image_source)
     report["quantization"] = _dataclass_to_dict(quant_result)
+    report["quantization"]["calibration_status"] = "author_selected"
 
     # 2d. Análisis de frecuencia FFT (v0.3.0)
     from .frequency_analyzer import analyze as freq_analyze
     freq_result = freq_analyze(image_source)
     report["frequency"] = _dataclass_to_dict(freq_result)
+    report["frequency"]["calibration_status"] = "author_selected"
 
     # 2e. Consistencia de ruido PRNU (v0.3.0)
     from .noise_analyzer import analyze as noise_analyze
     noise_result = noise_analyze(image_source)
     report["noise"] = _dataclass_to_dict(noise_result)
+    report["noise"]["calibration_status"] = "author_selected"
 
     # 3. Consistency checks
     consistency: ConsistencyReport = check(meta)

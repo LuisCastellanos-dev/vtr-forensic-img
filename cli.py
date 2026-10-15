@@ -13,6 +13,7 @@ Uso:
 """
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -278,10 +279,63 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", "-o",
         help="Guardar reporte a archivo"
     )
+
     p_diff.set_defaults(func=cmd_diff)
+
+    # ── verify-report ─────────────────────────────────────────
+    p_verify = subparsers.add_parser(
+        "verify-report",
+        help="Verificar que un reporte corresponda a una imagen por SHA-256"
+    )
+    p_verify.add_argument(
+        "report",
+        help="Ruta al reporte JSON generado por analyze --json"
+    )
+    p_verify.add_argument(
+        "image",
+        help="Ruta a la imagen original"
+    )
+    p_verify.set_defaults(func=cmd_verify_report)
 
     return parser
 
+
+
+def cmd_verify_report(args: argparse.Namespace) -> int:
+    """Verifica que un reporte JSON corresponda a una imagen por SHA-256."""
+    report_path = Path(args.report)
+    image_path = Path(args.image)
+
+    if not report_path.exists():
+        print(f'Error: reporte no encontrado: {report_path}', file=sys.stderr)
+        return 1
+    if not image_path.exists():
+        print(f'Error: imagen no encontrada: {image_path}', file=sys.stderr)
+        return 1
+
+    import json as _json
+    try:
+        report = _json.loads(report_path.read_text(encoding='utf-8'))
+    except (ValueError, OSError) as e:
+        print(f'Error: no se pudo leer el reporte: {e}', file=sys.stderr)
+        return 1
+
+    report_hash = report.get('metadata', {}).get('hashes', {}).get('sha256', '')
+    if not report_hash:
+        print('Error: el reporte no contiene metadata.hashes.sha256', file=sys.stderr)
+        return 1
+
+    image_hash = hashlib.sha256(image_path.read_bytes()).hexdigest()
+
+    if report_hash == image_hash:
+        print(f'MATCH: el reporte corresponde a la imagen')
+        print(f'  SHA-256: {image_hash}')
+        return 0
+    else:
+        print(f'MISMATCH: el reporte NO corresponde a la imagen')
+        print(f'  Reporte: {report_hash}')
+        print(f'  Imagen:  {image_hash}')
+        return 1
 
 def main() -> int:
     parser = build_parser()
